@@ -215,33 +215,45 @@ class OverlayService : Service() {
     
     private fun createNotification(): Notification {
         return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val notificationBuilder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 Notification.Builder(this, CHANNEL_ID)
-                    .setContentTitle("字幕遮挡服务")
-                    .setContentText("遮挡层正在运行")
-                    .setSmallIcon(android.R.drawable.ic_menu_info_details)
-                    .setOngoing(true)
-                    .setPriority(Notification.PRIORITY_LOW)
-                    .build()
             } else {
                 @Suppress("DEPRECATION")
                 Notification.Builder(this)
-                    .setContentTitle("字幕遮挡服务")
-                    .setContentText("遮挡层正在运行")
-                    .setSmallIcon(android.R.drawable.ic_menu_info_details)
-                    .setOngoing(true)
-                    .setPriority(Notification.PRIORITY_LOW)
-                    .build()
             }
+            
+            notificationBuilder
+                .setContentTitle("字幕遮挡服务")
+                .setContentText("遮挡层正在运行")
+                .setSmallIcon(android.R.drawable.ic_menu_info_details)
+                .setOngoing(true)
+                .setPriority(Notification.PRIORITY_LOW)
+                .setCategory(Notification.CATEGORY_SERVICE)
+            
+            // Android 14+ 需要设置通知可见性
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                notificationBuilder.setVisibility(Notification.VISIBILITY_PUBLIC)
+            }
+            
+            notificationBuilder.build()
         } catch (e: Exception) {
             android.util.Log.e(TAG, "Error creating notification", e)
+            e.printStackTrace()
             // 返回一个基本的通知
-            @Suppress("DEPRECATION")
-            Notification.Builder(this)
-                .setContentTitle("字幕遮挡服务")
-                .setContentText("服务运行中")
-                .setSmallIcon(android.R.drawable.ic_menu_info_details)
-                .build()
+            try {
+                @Suppress("DEPRECATION")
+                Notification.Builder(this)
+                    .setContentTitle("字幕遮挡服务")
+                    .setContentText("服务运行中")
+                    .setSmallIcon(android.R.drawable.ic_menu_info_details)
+                    .setOngoing(true)
+                    .build()
+            } catch (e2: Exception) {
+                android.util.Log.e(TAG, "Error creating fallback notification", e2)
+                // 最后的降级方案 - 创建一个空通知
+                @Suppress("DEPRECATION")
+                Notification()
+            }
         }
     }
     
