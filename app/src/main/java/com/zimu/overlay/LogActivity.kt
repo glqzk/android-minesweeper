@@ -2,10 +2,12 @@ package com.zimu.overlay
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.content.FileProvider
 import androidx.appcompat.app.AppCompatActivity
 import com.zimu.overlay.databinding.ActivityLogBinding
 import java.io.File
