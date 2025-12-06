@@ -82,16 +82,31 @@ class MainActivity : AppCompatActivity() {
             return
         }
         
-        val intent = Intent(this, OverlayService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
+        try {
+            val intent = Intent(this, OverlayService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+            
+            isServiceRunning = true
+            checkPermissionAndUpdateUI()
+            Toast.makeText(this, "遮挡层已启动，可以配置遮挡层", Toast.LENGTH_LONG).show()
+            
+            // 延迟检查服务状态，确保服务已启动
+            binding.root.postDelayed({
+                checkServiceStatus()
+                if (OverlayService.isRunning) {
+                    // 服务已启动，保持在后台运行，不退出APP
+                    // 用户可以通过控制窗口配置遮挡层
+                    android.util.Log.d("MainActivity", "Service started, keeping app in background")
+                }
+            }, 1000)
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error starting overlay service", e)
+            Toast.makeText(this, "启动失败: ${e.message}", Toast.LENGTH_SHORT).show()
         }
-        
-        isServiceRunning = true
-        checkPermissionAndUpdateUI()
-        Toast.makeText(this, "遮挡层已启动", Toast.LENGTH_SHORT).show()
     }
     
     private fun stopOverlayService() {
@@ -104,9 +119,23 @@ class MainActivity : AppCompatActivity() {
     }
     
     private fun checkServiceStatus() {
-        // 简单检查服务状态，实际应该通过Service连接来检查
+        // 检查服务状态
         isServiceRunning = OverlayService.isRunning
         checkPermissionAndUpdateUI()
+        
+        if (isServiceRunning) {
+            binding.tvStatus.text = "遮挡层运行中 - 可通过控制窗口配置"
+            binding.tvStatus.setTextColor(getColor(android.R.color.holo_green_dark))
+        }
+    }
+    
+    override fun onBackPressed() {
+        // 如果服务正在运行，按返回键时最小化到后台，不退出
+        if (isServiceRunning) {
+            moveTaskToBack(true)
+        } else {
+            super.onBackPressed()
+        }
     }
 }
 

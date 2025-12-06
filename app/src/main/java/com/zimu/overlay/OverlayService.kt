@@ -9,7 +9,9 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.PixelFormat
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -28,6 +30,7 @@ class OverlayService : Service() {
     private var controlWindow: ControlWindow? = null
     private var foldableHandler: FoldableHandler? = null
     private var sharedPreferences: SharedPreferences? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
     
     private var overlayParams: WindowManager.LayoutParams? = null
     private var overlayX = 0
@@ -38,10 +41,12 @@ class OverlayService : Service() {
     private var overlayColor = 0xFF000000.toInt() // 默认黑色
     private var overlayRotation = 0f // 旋转角度
     private var isOverlayVisible = true
+    private var isInitialized = false
     
     companion object {
         @Volatile
         var isRunning = false
+        private const val TAG = "OverlayService"
         private const val CHANNEL_ID = "overlay_service_channel"
         private const val NOTIFICATION_ID = 1
         private const val PREFS_NAME = "overlay_prefs"
@@ -52,83 +57,177 @@ class OverlayService : Service() {
         private const val KEY_ALPHA = "overlay_alpha"
         private const val KEY_COLOR = "overlay_color"
         private const val KEY_ROTATION = "overlay_rotation"
+        private const val DELAY_INIT_MS = 500L // 延迟500ms初始化窗口
     }
     
     override fun onCreate() {
         super.onCreate()
-        isRunning = true
+        android.util.Log.d(TAG, "onCreate called")
         
-        windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        sharedPreferences = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        
-        createNotificationChannel()
-        startForeground(NOTIFICATION_ID, createNotification())
-        
-        loadSettings()
-        createOverlayView()
-        createControlWindow()
-        setupFoldableHandler()
+        try {
+            isRunning = true
+            isInitialized = false
+            
+            // 使用Application Context确保服务独立运行
+            windowManager = applicationContext.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
+            sharedPreferences = applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            
+            if (windowManager == null) {
+                android.util.Log.e(TAG, "WindowManager is null, cannot initialize service")
+                stopSelf()
+                return
+            }
+            
+            createNotificationChannel()
+            startForeground(NOTIFICATION_ID, createNotification())
+            
+            loadSettings()
+            
+            // 延迟创建窗口，确保系统完全初始化
+            mainHandler.postDelayed({
+                try {
+                    if (!isInitialized) {
+                        android.util.Log.d(TAG, "Delayed initialization starting")
+                        createOverlayView()
+                        createControlWindow()
+                        setupFoldableHandler()
+                        isInitialized = true
+                        android.util.Log.d(TAG, "Service initialized successfully")
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e(TAG, "Error during delayed initialization", e)
+                    e.printStackTrace()
+                }
+            }, DELAY_INIT_MS)
+            
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Error in onCreate", e)
+            e.printStackTrace()
+            stopSelf()
+        }
     }
     
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        return START_STICKY
+        android.util.Log.d(TAG, "onStartCommand called, flags: $flags, startId: $startId")
+        
+        // 如果服务已经初始化，检查窗口是否还在
+        if (isInitialized) {
+            mainHandler.post {
+                try {
+                    // 检查并重新创建窗口（如果不存在）
+                    if (overlayView == null || overlayView?.parent == null) {
+                        android.util.Log.w(TAG, "Overlay view missing, recreating...")
+                        createOverlayView()
+                    }
+                    if (controlWindow == null) {
+                        android.util.Log.w(TAG, "Control window missing, recreating...")
+                        createControlWindow()
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e(TAG, "Error recreating windows", e)
+                }
+            }
+        }
+        
+        return START_STICKY // 确保服务被系统杀死后自动重启
     }
     
     override fun onBind(intent: Intent?): IBinder? = null
     
     override fun onDestroy() {
+        android.util.Log.d(TAG, "onDestroy called")
+        try {
+            isRunning = false
+            isInitialized = false
+            
+            // 清理所有资源
+            mainHandler.removeCallbacksAndMessages(null)
+            removeOverlayView()
+            controlWindow?.dismiss()
+            foldableHandler?.stopTracking()
+            
+            android.util.Log.d(TAG, "Service destroyed")
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Error in onDestroy", e)
+        }
         super.onDestroy()
-        isRunning = false
-        removeOverlayView()
-        controlWindow?.dismiss()
-        foldableHandler?.stopTracking()
     }
     
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "字幕遮挡服务",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "字幕遮挡服务正在运行"
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(
+                    CHANNEL_ID,
+                    "字幕遮挡服务",
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description = "字幕遮挡服务正在运行"
+                    setShowBadge(false)
+                }
+                val notificationManager = getSystemService(NotificationManager::class.java)
+                notificationManager?.createNotificationChannel(channel)
+                android.util.Log.d(TAG, "Notification channel created")
             }
-            val notificationManager = getSystemService(NotificationManager::class.java)
-            notificationManager.createNotificationChannel(channel)
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Error creating notification channel", e)
         }
     }
     
     private fun createNotification(): Notification {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("字幕遮挡服务")
-                .setContentText("遮挡层正在运行")
-                .setSmallIcon(android.R.drawable.ic_menu_info_details)
-                .build()
-        } else {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Notification.Builder(this, CHANNEL_ID)
+                    .setContentTitle("字幕遮挡服务")
+                    .setContentText("遮挡层正在运行")
+                    .setSmallIcon(android.R.drawable.ic_menu_info_details)
+                    .setOngoing(true)
+                    .setPriority(Notification.PRIORITY_LOW)
+                    .build()
+            } else {
+                @Suppress("DEPRECATION")
+                Notification.Builder(this)
+                    .setContentTitle("字幕遮挡服务")
+                    .setContentText("遮挡层正在运行")
+                    .setSmallIcon(android.R.drawable.ic_menu_info_details)
+                    .setOngoing(true)
+                    .setPriority(Notification.PRIORITY_LOW)
+                    .build()
+            }
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Error creating notification", e)
+            // 返回一个基本的通知
             @Suppress("DEPRECATION")
             Notification.Builder(this)
                 .setContentTitle("字幕遮挡服务")
-                .setContentText("遮挡层正在运行")
+                .setContentText("服务运行中")
                 .setSmallIcon(android.R.drawable.ic_menu_info_details)
                 .build()
         }
     }
     
     private fun loadSettings() {
-        val metrics = windowManager?.let { 
-            val displayMetrics = android.util.DisplayMetrics()
-            it.defaultDisplay.getMetrics(displayMetrics)
-            displayMetrics
-        } ?: return
-        
-        overlayX = sharedPreferences?.getInt(KEY_X, metrics.widthPixels / 2) ?: metrics.widthPixels / 2
-        overlayY = sharedPreferences?.getInt(KEY_Y, (metrics.heightPixels * 0.8).toInt()) ?: (metrics.heightPixels * 0.8).toInt()
-        overlayWidth = sharedPreferences?.getInt(KEY_WIDTH, metrics.widthPixels) ?: metrics.widthPixels
-        overlayHeight = sharedPreferences?.getInt(KEY_HEIGHT, (metrics.heightPixels * 0.2).toInt()) ?: (metrics.heightPixels * 0.2).toInt()
-        overlayAlpha = sharedPreferences?.getFloat(KEY_ALPHA, 0.5f) ?: 0.5f
-        overlayColor = sharedPreferences?.getInt(KEY_COLOR, 0xFF000000.toInt()) ?: 0xFF000000.toInt()
-        overlayRotation = sharedPreferences?.getFloat(KEY_ROTATION, 0f) ?: 0f
+        try {
+            val metrics = windowManager?.let { 
+                val displayMetrics = android.util.DisplayMetrics()
+                it.defaultDisplay.getMetrics(displayMetrics)
+                displayMetrics
+            } ?: run {
+                android.util.Log.w(TAG, "WindowManager is null, using default settings")
+                return
+            }
+            
+            overlayX = sharedPreferences?.getInt(KEY_X, metrics.widthPixels / 2) ?: metrics.widthPixels / 2
+            overlayY = sharedPreferences?.getInt(KEY_Y, (metrics.heightPixels * 0.8).toInt()) ?: (metrics.heightPixels * 0.8).toInt()
+            overlayWidth = sharedPreferences?.getInt(KEY_WIDTH, metrics.widthPixels) ?: metrics.widthPixels
+            overlayHeight = sharedPreferences?.getInt(KEY_HEIGHT, (metrics.heightPixels * 0.2).toInt()) ?: (metrics.heightPixels * 0.2).toInt()
+            overlayAlpha = sharedPreferences?.getFloat(KEY_ALPHA, 0.5f) ?: 0.5f
+            overlayColor = sharedPreferences?.getInt(KEY_COLOR, 0xFF000000.toInt()) ?: 0xFF000000.toInt()
+            overlayRotation = sharedPreferences?.getFloat(KEY_ROTATION, 0f) ?: 0f
+            
+            android.util.Log.d(TAG, "Settings loaded: x=$overlayX, y=$overlayY, w=$overlayWidth, h=$overlayHeight")
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Error loading settings", e)
+        }
     }
     
     private fun saveSettings() {
@@ -146,7 +245,21 @@ class OverlayService : Service() {
     
     private fun createOverlayView() {
         try {
-            val binding = OverlayViewBinding.inflate(LayoutInflater.from(this))
+            // 如果窗口已存在，先移除
+            if (overlayView != null && overlayView?.parent != null) {
+                android.util.Log.d(TAG, "Overlay view already exists, removing first")
+                removeOverlayView()
+            }
+            
+            val wm = windowManager
+            if (wm == null) {
+                android.util.Log.e(TAG, "WindowManager is null, cannot create overlay view")
+                return
+            }
+            
+            // 使用Application Context的LayoutInflater
+            val inflater = LayoutInflater.from(applicationContext)
+            val binding = OverlayViewBinding.inflate(inflater)
             overlayView = binding.root
             
             val overlayRect = binding.overlayRect
@@ -179,56 +292,73 @@ class OverlayService : Service() {
                 }
             }
             
-            windowManager?.let { wm ->
-                wm.addView(overlayView, overlayParams)
-            } ?: run {
-                android.util.Log.e("OverlayService", "WindowManager is null, cannot add overlay view")
-            }
+            wm.addView(overlayView, overlayParams)
+            android.util.Log.d(TAG, "Overlay view created and added successfully")
             
             // 添加拖拽功能
             overlayView?.setOnTouchListener(object : View.OnTouchListener {
-            private var initialX = 0
-            private var initialY = 0
-            private var initialTouchX = 0f
-            private var initialTouchY = 0f
-            
-            override fun onTouch(v: View?, event: MotionEvent?): Boolean {
-                when (event?.action) {
-                    MotionEvent.ACTION_DOWN -> {
-                        initialX = overlayParams?.x ?: 0
-                        initialY = overlayParams?.y ?: 0
-                        initialTouchX = event.rawX
-                        initialTouchY = event.rawY
-                        return true
+                private var initialX = 0
+                private var initialY = 0
+                private var initialTouchX = 0f
+                private var initialTouchY = 0f
+                
+                override fun onTouch(v: View?, event: MotionEvent?): Boolean {
+                    try {
+                        when (event?.action) {
+                            MotionEvent.ACTION_DOWN -> {
+                                initialX = overlayParams?.x ?: 0
+                                initialY = overlayParams?.y ?: 0
+                                initialTouchX = event.rawX
+                                initialTouchY = event.rawY
+                                return true
+                            }
+                            MotionEvent.ACTION_MOVE -> {
+                                val deltaX = (event.rawX - initialTouchX).toInt()
+                                val deltaY = (event.rawY - initialTouchY).toInt()
+                                overlayX = initialX + deltaX
+                                overlayY = initialY + deltaY
+                                updateOverlayPosition()
+                                return true
+                            }
+                            MotionEvent.ACTION_UP -> {
+                                saveSettings()
+                                return true
+                            }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e(TAG, "Error in touch listener", e)
                     }
-                    MotionEvent.ACTION_MOVE -> {
-                        val deltaX = (event.rawX - initialTouchX).toInt()
-                        val deltaY = (event.rawY - initialTouchY).toInt()
-                        overlayX = initialX + deltaX
-                        overlayY = initialY + deltaY
-                        updateOverlayPosition()
-                        return true
-                    }
-                    MotionEvent.ACTION_UP -> {
-                        saveSettings()
-                        return true
-                    }
-                }
                     return false
                 }
             })
         } catch (e: Exception) {
-            android.util.Log.e("OverlayService", "Error creating overlay view", e)
+            android.util.Log.e(TAG, "Error creating overlay view", e)
             e.printStackTrace()
+            // 尝试重试
+            mainHandler.postDelayed({
+                if (!isInitialized) {
+                    android.util.Log.d(TAG, "Retrying overlay view creation")
+                    createOverlayView()
+                }
+            }, 1000L)
         }
     }
     
     private fun setupFoldableHandler() {
-        windowManager?.let { wm ->
-            foldableHandler = FoldableHandler(this, wm) { layoutInfo ->
-                handleLayoutChange(layoutInfo)
+        try {
+            val wm = windowManager
+            if (wm != null) {
+                foldableHandler = FoldableHandler(applicationContext, wm) { layoutInfo ->
+                    handleLayoutChange(layoutInfo)
+                }
+                foldableHandler?.startTracking()
+                android.util.Log.d(TAG, "Foldable handler setup completed")
+            } else {
+                android.util.Log.w(TAG, "WindowManager is null, skipping foldable handler setup")
             }
-            foldableHandler?.startTracking()
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Error setting up foldable handler", e)
+            // 折叠屏功能不是必须的，失败不影响主功能
         }
     }
     
@@ -248,19 +378,25 @@ class OverlayService : Service() {
     }
     
     private fun createControlWindow() {
-        val metrics = windowManager?.let { 
-            val displayMetrics = android.util.DisplayMetrics()
-            it.defaultDisplay.getMetrics(displayMetrics)
-            displayMetrics
-        }
-        
-        val wm = windowManager
-        if (wm == null) {
-            android.util.Log.e("OverlayService", "WindowManager is null, cannot create control window")
-            return
-        }
-        
-        controlWindow = ControlWindow(this, wm, object : ControlWindow.Callback {
+        try {
+            // 如果控制窗口已存在，先移除
+            controlWindow?.dismiss()
+            controlWindow = null
+            
+            val wm = windowManager
+            if (wm == null) {
+                android.util.Log.e(TAG, "WindowManager is null, cannot create control window")
+                return
+            }
+            
+            val metrics = wm.let { 
+                val displayMetrics = android.util.DisplayMetrics()
+                it.defaultDisplay.getMetrics(displayMetrics)
+                displayMetrics
+            }
+            
+            // 使用Application Context确保控制窗口独立运行
+            controlWindow = ControlWindow(applicationContext, wm, object : ControlWindow.Callback {
             override fun onMove(deltaX: Int, deltaY: Int) {
                 overlayX += deltaX
                 overlayY += deltaY
@@ -309,54 +445,95 @@ class OverlayService : Service() {
             val rotationPercent = overlayRotation.toInt().coerceIn(0, 360)
             controlWindow?.syncSliders(widthPercent, heightPercent, alphaPercent, rotationPercent)
             controlWindow?.syncColor(overlayColor)
+            }
+            
+            android.util.Log.d(TAG, "Control window created successfully")
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Error creating control window", e)
+            e.printStackTrace()
+            // 尝试重试
+            mainHandler.postDelayed({
+                if (!isInitialized && controlWindow == null) {
+                    android.util.Log.d(TAG, "Retrying control window creation")
+                    createControlWindow()
+                }
+            }, 1000L)
         }
     }
     
     private fun updateOverlayPosition() {
-        overlayParams?.let { params ->
-            params.x = overlayX.coerceAtLeast(0)
-            params.y = overlayY.coerceAtLeast(0)
-            windowManager?.updateViewLayout(overlayView, params)
+        try {
+            overlayParams?.let { params ->
+                params.x = overlayX.coerceAtLeast(0)
+                params.y = overlayY.coerceAtLeast(0)
+                windowManager?.updateViewLayout(overlayView, params)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Error updating overlay position", e)
         }
     }
     
     private fun updateOverlaySize() {
-        overlayParams?.let { params ->
-            params.width = overlayWidth
-            params.height = overlayHeight
-            windowManager?.updateViewLayout(overlayView, params)
-            saveSettings()
+        try {
+            overlayParams?.let { params ->
+                params.width = overlayWidth
+                params.height = overlayHeight
+                windowManager?.updateViewLayout(overlayView, params)
+                saveSettings()
+            }
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Error updating overlay size", e)
         }
     }
     
     private fun updateOverlayAlpha() {
-        overlayView?.findViewById<View>(R.id.overlayRect)?.alpha = overlayAlpha
-        saveSettings()
+        try {
+            overlayView?.findViewById<View>(R.id.overlayRect)?.alpha = overlayAlpha
+            saveSettings()
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Error updating overlay alpha", e)
+        }
     }
     
     private fun updateOverlayVisibility() {
-        overlayView?.findViewById<View>(R.id.overlayRect)?.visibility = 
-            if (isOverlayVisible) View.VISIBLE else View.GONE
+        try {
+            overlayView?.findViewById<View>(R.id.overlayRect)?.visibility = 
+                if (isOverlayVisible) View.VISIBLE else View.GONE
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Error updating overlay visibility", e)
+        }
     }
     
     private fun updateOverlayColor() {
-        overlayView?.findViewById<View>(R.id.overlayRect)?.setBackgroundColor(overlayColor)
-        saveSettings()
+        try {
+            overlayView?.findViewById<View>(R.id.overlayRect)?.setBackgroundColor(overlayColor)
+            saveSettings()
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Error updating overlay color", e)
+        }
     }
     
     private fun updateOverlayRotation() {
-        overlayView?.findViewById<View>(R.id.overlayRect)?.rotation = overlayRotation
-        saveSettings()
+        try {
+            overlayView?.findViewById<View>(R.id.overlayRect)?.rotation = overlayRotation
+            saveSettings()
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Error updating overlay rotation", e)
+        }
     }
     
     private fun removeOverlayView() {
-        overlayView?.let {
+        overlayView?.let { view ->
             try {
-                windowManager?.removeView(it)
+                if (view.parent != null) {
+                    windowManager?.removeView(view)
+                    android.util.Log.d(TAG, "Overlay view removed")
+                }
             } catch (e: Exception) {
-                android.util.Log.e("OverlayService", "Error removing overlay view", e)
+                android.util.Log.e(TAG, "Error removing overlay view", e)
             }
             overlayView = null
+            overlayParams = null
         }
     }
 }

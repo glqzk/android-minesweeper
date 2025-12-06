@@ -31,32 +31,58 @@ class ControlWindow(
     }
     
     fun show() {
-        if (controlView != null) return
-        
-        val b = ControlWindowBinding.inflate(LayoutInflater.from(context))
-        binding = b
-        controlView = b.root
-        
-        params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        try {
+            // 如果窗口已存在，先移除
+            if (controlView != null && controlView?.parent != null) {
+                android.util.Log.d("ControlWindow", "Control window already exists, removing first")
+                dismiss()
+            }
+            
+            if (controlView != null) {
+                android.util.Log.w("ControlWindow", "Control view exists but not attached, reusing")
+                return
+            }
+            
+            // 确保使用Application Context
+            val appContext = if (context is android.app.Application) {
+                context
             } else {
-                @Suppress("DEPRECATION")
-                WindowManager.LayoutParams.TYPE_PHONE
-            },
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.END
-            x = 0
-            y = 200
+                context.applicationContext
+            }
+            
+            val b = ControlWindowBinding.inflate(LayoutInflater.from(appContext))
+            binding = b
+            controlView = b.root
+            
+            params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                } else {
+                    @Suppress("DEPRECATION")
+                    WindowManager.LayoutParams.TYPE_PHONE
+                },
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.END
+                x = 0
+                y = 200
+            }
+            
+            windowManager.addView(controlView, params)
+            android.util.Log.d("ControlWindow", "Control window created and added successfully")
+            
+            setupControls(b)
+        } catch (e: Exception) {
+            android.util.Log.e("ControlWindow", "Error showing control window", e)
+            e.printStackTrace()
+            // 清理状态
+            controlView = null
+            params = null
+            binding = null
         }
-        
-        windowManager.addView(controlView, params)
-        
-        setupControls(b)
     }
     
     private fun setupControls(binding: ControlWindowBinding) {
@@ -181,8 +207,15 @@ class ControlWindow(
     }
     
     fun dismiss() {
-        controlView?.let {
-            windowManager.removeView(it)
+        controlView?.let { view ->
+            try {
+                if (view.parent != null) {
+                    windowManager.removeView(view)
+                    android.util.Log.d("ControlWindow", "Control window removed")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ControlWindow", "Error removing control window", e)
+            }
             controlView = null
             params = null
             binding = null
