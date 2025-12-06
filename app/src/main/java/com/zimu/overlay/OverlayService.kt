@@ -110,10 +110,12 @@ class OverlayService : Service() {
                             android.util.Log.d(TAG, "Service initialized successfully")
                         } else {
                             android.util.Log.e(TAG, "Failed to create overlay view")
+                            LogManager.log("E", TAG, "Failed to create overlay view")
                         }
                     }
                 } catch (e: Exception) {
                     android.util.Log.e(TAG, "Error during delayed initialization", e)
+                    LogManager.log("E", TAG, "Error during delayed initialization", e)
                     e.printStackTrace()
                     // 记录完整的堆栈跟踪
                     val sw = java.io.StringWriter()
@@ -440,14 +442,17 @@ class OverlayService : Service() {
             true // 成功创建
         } catch (e: android.view.WindowManager.BadTokenException) {
             android.util.Log.e(TAG, "BadTokenException creating overlay view", e)
+            LogManager.log("E", TAG, "BadTokenException creating overlay view", e)
             e.printStackTrace()
             false
         } catch (e: SecurityException) {
             android.util.Log.e(TAG, "SecurityException creating overlay view - permission denied", e)
+            LogManager.log("E", TAG, "SecurityException creating overlay view - permission denied", e)
             e.printStackTrace()
             false
         } catch (e: Exception) {
             android.util.Log.e(TAG, "Error creating overlay view", e)
+            LogManager.log("E", TAG, "Error creating overlay view", e)
             e.printStackTrace()
             val sw = java.io.StringWriter()
             val pw = java.io.PrintWriter(sw)
@@ -569,17 +574,21 @@ class OverlayService : Service() {
             }
             
             android.util.Log.d(TAG, "Control window created successfully")
+            LogManager.log("I", TAG, "Control window created successfully")
             true // 成功创建
         } catch (e: android.view.WindowManager.BadTokenException) {
             android.util.Log.e(TAG, "BadTokenException creating control window", e)
+            LogManager.log("E", TAG, "BadTokenException creating control window", e)
             e.printStackTrace()
             false
         } catch (e: SecurityException) {
             android.util.Log.e(TAG, "SecurityException creating control window - permission denied", e)
+            LogManager.log("E", TAG, "SecurityException creating control window - permission denied", e)
             e.printStackTrace()
             false
         } catch (e: Exception) {
             android.util.Log.e(TAG, "Error creating control window", e)
+            LogManager.log("E", TAG, "Error creating control window", e)
             e.printStackTrace()
             val sw = java.io.StringWriter()
             val pw = java.io.PrintWriter(sw)
