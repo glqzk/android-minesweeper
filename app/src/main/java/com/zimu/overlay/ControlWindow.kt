@@ -86,24 +86,9 @@ class ControlWindow(
     }
     
     private fun setupControls(binding: ControlWindowBinding) {
-        // 方向控制按钮
-        binding.btnUp.setOnClickListener {
-            callback.onMove(0, -20)
-        }
+        // 方向控制已移除，现在可以直接拖拽遮挡层
         
-        binding.btnDown.setOnClickListener {
-            callback.onMove(0, 20)
-        }
-        
-        binding.btnLeft.setOnClickListener {
-            callback.onMove(-20, 0)
-        }
-        
-        binding.btnRight.setOnClickListener {
-            callback.onMove(20, 0)
-        }
-        
-        // 大小控制
+        // 大小控制（可选，因为现在支持双指缩放）
         binding.seekBarWidth.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser) {

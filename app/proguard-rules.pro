@@ -5,3 +5,6 @@
 # Keep WindowManager classes
 -keep class androidx.window.** { *; }
 
+
+
+

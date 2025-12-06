@@ -50,3 +50,6 @@ gradlew.bat assembleRelease
 构建完成后，APK文件位于：
 `app/build/outputs/apk/release/app-release.apk`
 
+
+
+

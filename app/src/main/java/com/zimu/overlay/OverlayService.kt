@@ -13,15 +13,16 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.view.Gravity
-import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.SeekBar
 import androidx.window.layout.WindowLayoutInfo
-import com.zimu.overlay.databinding.OverlayViewBinding
+import kotlin.math.atan2
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.pow
+import kotlin.math.sqrt
 
 class OverlayService : Service() {
     
@@ -42,6 +43,14 @@ class OverlayService : Service() {
     private var overlayRotation = 0f // 旋转角度
     private var isOverlayVisible = true
     private var isInitialized = false
+    
+    // 手势识别相关变量
+    private var initialDistance = 0f
+    private var initialRotation = 0f
+    private var initialScale = 1f
+    private var initialCenterX = 0f
+    private var initialCenterY = 0f
+    private var isMultiTouch = false
     
     companion object {
         @Volatile
@@ -384,34 +393,18 @@ class OverlayService : Service() {
                 return false
             }
             
-            // 使用Application Context的LayoutInflater
-            val inflater = LayoutInflater.from(applicationContext)
-            if (inflater == null) {
-                android.util.Log.e(TAG, "LayoutInflater is null")
-                return false
+            // 直接创建View，不依赖布局文件
+            overlayView = View(applicationContext).apply {
+                setBackgroundColor(overlayColor)
+                alpha = overlayAlpha
+                rotation = overlayRotation
+                visibility = if (isOverlayVisible) View.VISIBLE else View.GONE
             }
             
-            val binding = OverlayViewBinding.inflate(inflater)
-            if (binding == null) {
-                android.util.Log.e(TAG, "OverlayViewBinding is null")
-                return false
-            }
-            
-            overlayView = binding.root
             if (overlayView == null) {
-                android.util.Log.e(TAG, "Overlay view root is null")
+                android.util.Log.e(TAG, "Failed to create overlay view")
                 return false
             }
-            
-            val overlayRect = binding.overlayRect
-            if (overlayRect == null) {
-                android.util.Log.e(TAG, "Overlay rect view is null")
-                return false
-            }
-            overlayRect.alpha = overlayAlpha
-            overlayRect.setBackgroundColor(overlayColor)
-            overlayRect.rotation = overlayRotation
-            overlayRect.visibility = if (isOverlayVisible) View.VISIBLE else View.GONE
             
             overlayParams = WindowManager.LayoutParams(
                 overlayWidth,
@@ -422,8 +415,7 @@ class OverlayService : Service() {
                     @Suppress("DEPRECATION")
                     WindowManager.LayoutParams.TYPE_PHONE
                 },
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                         WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
                 PixelFormat.TRANSLUCENT
             ).apply {
@@ -464,38 +456,146 @@ class OverlayService : Service() {
                 return false
             }
             
-            // 添加拖拽功能
+            // 添加完整的手势识别：单指拖拽、双指缩放、双指旋转
             overlayView?.setOnTouchListener(object : View.OnTouchListener {
                 private var initialX = 0
                 private var initialY = 0
                 private var initialTouchX = 0f
                 private var initialTouchY = 0f
+                private var lastPointerCount = 0
                 
                 override fun onTouch(v: View?, event: MotionEvent?): Boolean {
+                    if (event == null || overlayParams == null) return false
+                    
                     try {
-                        when (event?.action) {
+                        val pointerCount = event.pointerCount
+                        
+                        when (event.actionMasked) {
                             MotionEvent.ACTION_DOWN -> {
-                                initialX = overlayParams?.x ?: 0
-                                initialY = overlayParams?.y ?: 0
+                                // 单指按下，准备拖拽
+                                initialX = overlayParams.x
+                                initialY = overlayParams.y
                                 initialTouchX = event.rawX
                                 initialTouchY = event.rawY
+                                isMultiTouch = false
+                                lastPointerCount = 1
                                 return true
                             }
+                            
+                            MotionEvent.ACTION_POINTER_DOWN -> {
+                                // 多点触控开始，准备缩放或旋转
+                                if (pointerCount == 2) {
+                                    isMultiTouch = true
+                                    val x0 = event.getX(0)
+                                    val y0 = event.getY(0)
+                                    val x1 = event.getX(1)
+                                    val y1 = event.getY(1)
+                                    
+                                    // 计算初始距离和角度
+                                    initialDistance = sqrt((x1 - x0).pow(2) + (y1 - y0).pow(2))
+                                    initialRotation = atan2(y1 - y0, x1 - x0)
+                                    initialScale = 1f
+                                    
+                                    // 计算中心点
+                                    initialCenterX = (x0 + x1) / 2
+                                    initialCenterY = (y0 + y1) / 2
+                                    
+                                    // 保存初始大小和旋转
+                                    initialScale = 1f
+                                    lastPointerCount = 2
+                                }
+                                return true
+                            }
+                            
                             MotionEvent.ACTION_MOVE -> {
-                                val deltaX = (event.rawX - initialTouchX).toInt()
-                                val deltaY = (event.rawY - initialTouchY).toInt()
-                                overlayX = initialX + deltaX
-                                overlayY = initialY + deltaY
-                                updateOverlayPosition()
+                                if (isMultiTouch && pointerCount == 2) {
+                                    // 双指操作：缩放和旋转
+                                    val x0 = event.getX(0)
+                                    val y0 = event.getY(0)
+                                    val x1 = event.getX(1)
+                                    val y1 = event.getY(1)
+                                    
+                                    // 计算当前距离和角度
+                                    val currentDistance = sqrt((x1 - x0).pow(2) + (y1 - y0).pow(2))
+                                    val currentRotation = atan2(y1 - y0, x1 - x0)
+                                    
+                                    // 计算缩放比例
+                                    if (initialDistance > 0) {
+                                        val scale = currentDistance / initialDistance
+                                        val newWidth = (overlayWidth * scale).toInt().coerceAtLeast(50)
+                                        val newHeight = (overlayHeight * scale).toInt().coerceAtLeast(50)
+                                        
+                                        // 限制最大尺寸（屏幕尺寸）
+                                        val metrics = wm.let {
+                                            val displayMetrics = android.util.DisplayMetrics()
+                                            it.defaultDisplay.getMetrics(displayMetrics)
+                                            displayMetrics
+                                        }
+                                        overlayWidth = newWidth.coerceAtMost(metrics.widthPixels)
+                                        overlayHeight = newHeight.coerceAtMost(metrics.heightPixels)
+                                    }
+                                    
+                                    // 计算旋转角度（度）
+                                    val rotationDelta = Math.toDegrees((currentRotation - initialRotation).toDouble()).toFloat()
+                                    overlayRotation = (overlayRotation + rotationDelta).let {
+                                        // 限制在0-360度
+                                        if (it < 0) it + 360f else if (it >= 360f) it - 360f else it
+                                    }
+                                    
+                                    // 更新视图
+                                    updateOverlaySize()
+                                    updateOverlayRotation()
+                                    
+                                    // 更新初始值，用于连续操作
+                                    initialDistance = currentDistance
+                                    initialRotation = currentRotation
+                                    
+                                } else if (!isMultiTouch && pointerCount == 1) {
+                                    // 单指拖拽
+                                    val deltaX = (event.rawX - initialTouchX).toInt()
+                                    val deltaY = (event.rawY - initialTouchY).toInt()
+                                    overlayX = (initialX + deltaX).coerceAtLeast(0)
+                                    overlayY = (initialY + deltaY).coerceAtLeast(0)
+                                    updateOverlayPosition()
+                                }
                                 return true
                             }
+                            
+                            MotionEvent.ACTION_POINTER_UP -> {
+                                // 一个手指抬起
+                                if (pointerCount == 2) {
+                                    // 还剩一个手指，切换回单指模式
+                                    val remainingIndex = if (event.actionIndex == 0) 1 else 0
+                                    initialTouchX = event.getX(remainingIndex)
+                                    initialTouchY = event.getY(remainingIndex)
+                                    initialX = overlayParams.x
+                                    initialY = overlayParams.y
+                                    isMultiTouch = false
+                                    lastPointerCount = 1
+                                }
+                                return true
+                            }
+                            
                             MotionEvent.ACTION_UP -> {
-                                saveSettings()
+                                // 所有手指抬起，保存设置
+                                isMultiTouch = false
+                                lastPointerCount = 0
+                                // 延迟保存，避免频繁IO
+                                mainHandler.postDelayed({
+                                    saveSettings()
+                                }, 500)
+                                return true
+                            }
+                            
+                            MotionEvent.ACTION_CANCEL -> {
+                                isMultiTouch = false
+                                lastPointerCount = 0
                                 return true
                             }
                         }
                     } catch (e: Exception) {
                         android.util.Log.e(TAG, "Error in touch listener", e)
+                        LogManager.log("E", TAG, "Error in touch listener", e)
                     }
                     return false
                 }
@@ -687,7 +787,7 @@ class OverlayService : Service() {
     
     private fun updateOverlayAlpha() {
         try {
-            overlayView?.findViewById<View>(R.id.overlayRect)?.alpha = overlayAlpha
+            overlayView?.alpha = overlayAlpha
             saveSettings()
         } catch (e: Exception) {
             android.util.Log.e(TAG, "Error updating overlay alpha", e)
@@ -696,8 +796,7 @@ class OverlayService : Service() {
     
     private fun updateOverlayVisibility() {
         try {
-            overlayView?.findViewById<View>(R.id.overlayRect)?.visibility = 
-                if (isOverlayVisible) View.VISIBLE else View.GONE
+            overlayView?.visibility = if (isOverlayVisible) View.VISIBLE else View.GONE
         } catch (e: Exception) {
             android.util.Log.e(TAG, "Error updating overlay visibility", e)
         }
@@ -705,7 +804,7 @@ class OverlayService : Service() {
     
     private fun updateOverlayColor() {
         try {
-            overlayView?.findViewById<View>(R.id.overlayRect)?.setBackgroundColor(overlayColor)
+            overlayView?.setBackgroundColor(overlayColor)
             saveSettings()
         } catch (e: Exception) {
             android.util.Log.e(TAG, "Error updating overlay color", e)
@@ -714,8 +813,8 @@ class OverlayService : Service() {
     
     private fun updateOverlayRotation() {
         try {
-            overlayView?.findViewById<View>(R.id.overlayRect)?.rotation = overlayRotation
-            saveSettings()
+            overlayView?.rotation = overlayRotation
+            // 不立即保存，避免频繁IO，在触摸结束时统一保存
         } catch (e: Exception) {
             android.util.Log.e(TAG, "Error updating overlay rotation", e)
         }
