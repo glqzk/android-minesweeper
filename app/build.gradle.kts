@@ -24,6 +24,17 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // 允许未签名的release构建（用于CI/CD）
+            signingConfig = signingConfigs.getByName("debug")
+        }
+        debug {
+            // 确保debug版本也能正常构建
+        }
+    }
+    
+    signingConfigs {
+        getByName("debug") {
+            // 使用debug签名配置
         }
     }
     
