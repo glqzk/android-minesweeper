@@ -119,6 +119,64 @@
         android:max="100"
         android:progress="50" />
 
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="颜色"
+        android:textSize="10sp"
+        android:layout_marginTop="4dp" />
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:layout_marginTop="4dp">
+
+        <Button
+            android:id="@+id/btnColorBlack"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:background="#FF000000"
+            android:layout_margin="2dp" />
+
+        <Button
+            android:id="@+id/btnColorWhite"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:background="#FFFFFFFF"
+            android:layout_margin="2dp" />
+
+        <Button
+            android:id="@+id/btnColorRed"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:background="#FFFF0000"
+            android:layout_margin="2dp" />
+
+        <Button
+            android:id="@+id/btnColorBlue"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:background="#FF0000FF"
+            android:layout_margin="2dp" />
+
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="旋转角度"
+        android:textSize="10sp"
+        android:layout_marginTop="4dp" />
+
+    <SeekBar
+        android:id="@+id/seekBarRotation"
+        android:layout_width="150dp"
+        android:layout_height="wrap_content"
+        android:max="360"
+        android:progress="0" />
+
     <Button
         android:id="@+id/btnToggle"
         android:layout_width="match_parent"

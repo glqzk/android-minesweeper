@@ -35,6 +35,8 @@ class OverlayService : Service() {
     private var overlayWidth = 0
     private var overlayHeight = 0
     private var overlayAlpha = 0.5f
+    private var overlayColor = 0xFF000000.toInt() // 默认黑色
+    private var overlayRotation = 0f // 旋转角度
     private var isOverlayVisible = true
     
     companion object {
@@ -48,6 +50,8 @@ class OverlayService : Service() {
         private const val KEY_WIDTH = "overlay_width"
         private const val KEY_HEIGHT = "overlay_height"
         private const val KEY_ALPHA = "overlay_alpha"
+        private const val KEY_COLOR = "overlay_color"
+        private const val KEY_ROTATION = "overlay_rotation"
     }
     
     override fun onCreate() {
@@ -123,6 +127,8 @@ class OverlayService : Service() {
         overlayWidth = sharedPreferences?.getInt(KEY_WIDTH, metrics.widthPixels) ?: metrics.widthPixels
         overlayHeight = sharedPreferences?.getInt(KEY_HEIGHT, (metrics.heightPixels * 0.2).toInt()) ?: (metrics.heightPixels * 0.2).toInt()
         overlayAlpha = sharedPreferences?.getFloat(KEY_ALPHA, 0.5f) ?: 0.5f
+        overlayColor = sharedPreferences?.getInt(KEY_COLOR, 0xFF000000.toInt()) ?: 0xFF000000.toInt()
+        overlayRotation = sharedPreferences?.getFloat(KEY_ROTATION, 0f) ?: 0f
     }
     
     private fun saveSettings() {
@@ -132,41 +138,55 @@ class OverlayService : Service() {
             putInt(KEY_WIDTH, overlayWidth)
             putInt(KEY_HEIGHT, overlayHeight)
             putFloat(KEY_ALPHA, overlayAlpha)
+            putInt(KEY_COLOR, overlayColor)
+            putFloat(KEY_ROTATION, overlayRotation)
             apply()
         }
     }
     
     private fun createOverlayView() {
-        val binding = OverlayViewBinding.inflate(LayoutInflater.from(this))
-        overlayView = binding.root
-        
-        val overlayRect = binding.overlayRect
-        overlayRect.alpha = overlayAlpha
-        overlayRect.visibility = if (isOverlayVisible) View.VISIBLE else View.GONE
-        
-        overlayParams = WindowManager.LayoutParams(
-            overlayWidth,
-            overlayHeight,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            } else {
-                @Suppress("DEPRECATION")
-                WindowManager.LayoutParams.TYPE_PHONE
-            },
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = overlayX
-            y = overlayY
-        }
-        
-        windowManager?.addView(overlayView, overlayParams)
-        
-        // 添加拖拽功能
-        overlayView?.setOnTouchListener(object : View.OnTouchListener {
+        try {
+            val binding = OverlayViewBinding.inflate(LayoutInflater.from(this))
+            overlayView = binding.root
+            
+            val overlayRect = binding.overlayRect
+            overlayRect.alpha = overlayAlpha
+            overlayRect.setBackgroundColor(overlayColor)
+            overlayRect.rotation = overlayRotation
+            overlayRect.visibility = if (isOverlayVisible) View.VISIBLE else View.GONE
+            
+            overlayParams = WindowManager.LayoutParams(
+                overlayWidth,
+                overlayHeight,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                } else {
+                    @Suppress("DEPRECATION")
+                    WindowManager.LayoutParams.TYPE_PHONE
+                },
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                        WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.START
+                x = overlayX
+                y = overlayY
+                // 锁定方向，不受屏幕旋转影响
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    @Suppress("DEPRECATION")
+                    preferredDisplayModeId = 0
+                }
+            }
+            
+            windowManager?.let { wm ->
+                wm.addView(overlayView, overlayParams)
+            } ?: run {
+                android.util.Log.e("OverlayService", "WindowManager is null, cannot add overlay view")
+            }
+            
+            // 添加拖拽功能
+            overlayView?.setOnTouchListener(object : View.OnTouchListener {
             private var initialX = 0
             private var initialY = 0
             private var initialTouchX = 0f
@@ -194,9 +214,13 @@ class OverlayService : Service() {
                         return true
                     }
                 }
-                return false
-            }
-        })
+                    return false
+                }
+            })
+        } catch (e: Exception) {
+            android.util.Log.e("OverlayService", "Error creating overlay view", e)
+            e.printStackTrace()
+        }
     }
     
     private fun setupFoldableHandler() {
@@ -230,7 +254,13 @@ class OverlayService : Service() {
             displayMetrics
         }
         
-        controlWindow = ControlWindow(this, windowManager!!, object : ControlWindow.Callback {
+        val wm = windowManager
+        if (wm == null) {
+            android.util.Log.e("OverlayService", "WindowManager is null, cannot create control window")
+            return
+        }
+        
+        controlWindow = ControlWindow(this, wm, object : ControlWindow.Callback {
             override fun onMove(deltaX: Int, deltaY: Int) {
                 overlayX += deltaX
                 overlayY += deltaY
@@ -258,6 +288,16 @@ class OverlayService : Service() {
                 isOverlayVisible = !isOverlayVisible
                 updateOverlayVisibility()
             }
+            
+            override fun onColorChange(color: Int) {
+                overlayColor = color
+                updateOverlayColor()
+            }
+            
+            override fun onRotationChange(rotation: Float) {
+                overlayRotation = rotation
+                updateOverlayRotation()
+            }
         })
         controlWindow?.show()
         
@@ -266,7 +306,9 @@ class OverlayService : Service() {
             val widthPercent = (overlayWidth * 100 / m.widthPixels).coerceIn(0, 100)
             val heightPercent = (overlayHeight * 100 / m.heightPixels).coerceIn(0, 100)
             val alphaPercent = (overlayAlpha * 100).toInt().coerceIn(0, 100)
-            controlWindow?.syncSliders(widthPercent, heightPercent, alphaPercent)
+            val rotationPercent = overlayRotation.toInt().coerceIn(0, 360)
+            controlWindow?.syncSliders(widthPercent, heightPercent, alphaPercent, rotationPercent)
+            controlWindow?.syncColor(overlayColor)
         }
     }
     
@@ -297,9 +339,23 @@ class OverlayService : Service() {
             if (isOverlayVisible) View.VISIBLE else View.GONE
     }
     
+    private fun updateOverlayColor() {
+        overlayView?.findViewById<View>(R.id.overlayRect)?.setBackgroundColor(overlayColor)
+        saveSettings()
+    }
+    
+    private fun updateOverlayRotation() {
+        overlayView?.findViewById<View>(R.id.overlayRect)?.rotation = overlayRotation
+        saveSettings()
+    }
+    
     private fun removeOverlayView() {
         overlayView?.let {
-            windowManager?.removeView(it)
+            try {
+                windowManager?.removeView(it)
+            } catch (e: Exception) {
+                android.util.Log.e("OverlayService", "Error removing overlay view", e)
+            }
             overlayView = null
         }
     }
