@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">字幕遮挡</string>
+    <string name="permission_title">需要悬浮窗权限</string>
+    <string name="permission_message">为了显示遮挡层，需要授予悬浮窗权限。\n\n请点击下方按钮前往设置开启。</string>
+    <string name="request_permission">授予权限</string>
+    <string name="start_overlay">启动遮挡</string>
+    <string name="stop_overlay">停止遮挡</string>
+    <string name="permission_granted">权限已授予</string>
+    <string name="permission_denied">权限未授予，无法使用</string>
+</resources>
+
