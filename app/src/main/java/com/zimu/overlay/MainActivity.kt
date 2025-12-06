@@ -20,6 +20,9 @@ class MainActivity : AppCompatActivity() {
         // 初始化全局异常处理器
         CrashHandler.init()
         
+        // 初始化日志管理器
+        LogManager.init(applicationContext)
+        
         try {
             binding = ActivityMainBinding.inflate(layoutInflater)
             setContentView(binding.root)
@@ -27,6 +30,7 @@ class MainActivity : AppCompatActivity() {
             checkPermissionAndUpdateUI()
         } catch (e: Exception) {
             android.util.Log.e("MainActivity", "Error in onCreate", e)
+            LogManager.log("E", "MainActivity", "Error in onCreate", e)
             e.printStackTrace()
             throw e
         }
@@ -41,6 +45,11 @@ class MainActivity : AppCompatActivity() {
         
         binding.btnStopOverlay.setOnClickListener {
             stopOverlayService()
+        }
+        
+        binding.btnViewLogs.setOnClickListener {
+            val intent = Intent(this, LogActivity::class.java)
+            startActivity(intent)
         }
     }
     

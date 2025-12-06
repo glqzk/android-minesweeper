@@ -26,6 +26,14 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
             Log.e(TAG, "Message: ${exception.message}")
             Log.e(TAG, "Stack trace:\n$stackTraceString")
             
+            // 记录到LogManager
+            try {
+                LogManager.log("E", TAG, "Uncaught exception in thread: ${thread.name}", exception)
+            } catch (e: Exception) {
+                // 如果LogManager也失败，至少记录到系统日志
+                Log.e(TAG, "Failed to log to LogManager", e)
+            }
+            
             // 打印到logcat，方便调试
             exception.printStackTrace()
             

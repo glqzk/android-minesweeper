@@ -63,6 +63,7 @@ class OverlayService : Service() {
     override fun onCreate() {
         super.onCreate()
         android.util.Log.d(TAG, "onCreate called, SDK: ${Build.VERSION.SDK_INT}")
+        LogManager.log("I", TAG, "Service onCreate called, SDK: ${Build.VERSION.SDK_INT}")
         
         try {
             isRunning = true
@@ -74,6 +75,7 @@ class OverlayService : Service() {
             
             if (windowManager == null) {
                 android.util.Log.e(TAG, "WindowManager is null, cannot initialize service")
+                LogManager.log("E", TAG, "WindowManager is null, cannot initialize service")
                 stopSelf()
                 return
             }
@@ -81,6 +83,7 @@ class OverlayService : Service() {
             // 检查悬浮窗权限
             if (!checkOverlayPermission()) {
                 android.util.Log.e(TAG, "Overlay permission not granted, stopping service")
+                LogManager.log("E", TAG, "Overlay permission not granted, stopping service")
                 stopSelf()
                 return
             }
@@ -381,14 +384,18 @@ class OverlayService : Service() {
             try {
                 wm.addView(overlayView, overlayParams)
                 android.util.Log.d(TAG, "Overlay view created and added successfully")
+                LogManager.log("I", TAG, "Overlay view created and added successfully")
             } catch (e: android.view.WindowManager.BadTokenException) {
                 android.util.Log.e(TAG, "BadTokenException when adding overlay view", e)
+                LogManager.log("E", TAG, "BadTokenException when adding overlay view", e)
                 return false
             } catch (e: SecurityException) {
                 android.util.Log.e(TAG, "SecurityException when adding overlay view - permission issue", e)
+                LogManager.log("E", TAG, "SecurityException when adding overlay view - permission issue", e)
                 return false
             } catch (e: Exception) {
                 android.util.Log.e(TAG, "Exception when adding overlay view", e)
+                LogManager.log("E", TAG, "Exception when adding overlay view", e)
                 e.printStackTrace()
                 return false
             }

@@ -63,6 +63,16 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/btnStartOverlay" />
 
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnViewLogs"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="查看日志"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/btnStopOverlay" />
+
     <TextView
         android:id="@+id/tvStatus"
         android:layout_width="0dp"
@@ -73,7 +83,7 @@
         android:textColor="?attr/colorPrimary"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/btnStopOverlay"
+        app:layout_constraintTop_toBottomOf="@+id/btnViewLogs"
         app:layout_constraintBottom_toBottomOf="parent" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

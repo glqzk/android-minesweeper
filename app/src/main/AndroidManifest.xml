@@ -31,6 +31,12 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".LogActivity"
+            android:exported="false"
+            android:theme="@style/Theme.ZimuOverlay"
+            android:label="应用日志" />
+
         <!-- 遮挡层服务 -->
         <service
             android:name=".OverlayService"
