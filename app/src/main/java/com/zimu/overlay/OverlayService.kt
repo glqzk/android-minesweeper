@@ -473,8 +473,13 @@ class OverlayService : Service() {
                         when (event.actionMasked) {
                             MotionEvent.ACTION_DOWN -> {
                                 // 单指按下，准备拖拽
-                                initialX = overlayParams.x
-                                initialY = overlayParams.y
+                                overlayParams?.let { params ->
+                                    initialX = params.x
+                                    initialY = params.y
+                                } ?: run {
+                                    initialX = 0
+                                    initialY = 0
+                                }
                                 initialTouchX = event.rawX
                                 initialTouchY = event.rawY
                                 isMultiTouch = false
@@ -568,8 +573,13 @@ class OverlayService : Service() {
                                     val remainingIndex = if (event.actionIndex == 0) 1 else 0
                                     initialTouchX = event.getX(remainingIndex)
                                     initialTouchY = event.getY(remainingIndex)
-                                    initialX = overlayParams.x
-                                    initialY = overlayParams.y
+                                    overlayParams?.let { params ->
+                                        initialX = params.x
+                                        initialY = params.y
+                                    } ?: run {
+                                        initialX = 0
+                                        initialY = 0
+                                    }
                                     isMultiTouch = false
                                     lastPointerCount = 1
                                 }
