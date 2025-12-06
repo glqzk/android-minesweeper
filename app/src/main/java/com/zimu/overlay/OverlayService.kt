@@ -61,17 +61,38 @@ class OverlayService : Service() {
     }
     
     override fun onCreate() {
-        super.onCreate()
-        android.util.Log.d(TAG, "onCreate called, SDK: ${Build.VERSION.SDK_INT}")
-        LogManager.log("I", TAG, "Service onCreate called, SDK: ${Build.VERSION.SDK_INT}")
+        // 在最开始就记录日志，确保即使后续崩溃也能看到
+        try {
+            android.util.Log.d(TAG, "=== OverlayService.onCreate() START ===")
+            LogManager.log("I", TAG, "=== OverlayService.onCreate() START ===")
+            LogManager.log("I", TAG, "SDK Version: ${Build.VERSION.SDK_INT}")
+            LogManager.log("I", TAG, "Service class: ${this.javaClass.name}")
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Error logging onCreate start", e)
+        }
+        
+        try {
+            super.onCreate()
+            LogManager.log("I", TAG, "super.onCreate() completed")
+        } catch (e: Exception) {
+            LogManager.log("E", TAG, "Error in super.onCreate()", e)
+            android.util.Log.e(TAG, "Error in super.onCreate()", e)
+            throw e
+        }
         
         try {
             isRunning = true
             isInitialized = false
+            LogManager.log("I", TAG, "Service state: isRunning=true, isInitialized=false")
             
             // 使用Application Context确保服务独立运行
+            LogManager.log("I", TAG, "Getting WindowManager from applicationContext")
             windowManager = applicationContext.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
+            LogManager.log("I", TAG, "WindowManager obtained: ${windowManager != null}")
+            
+            LogManager.log("I", TAG, "Getting SharedPreferences")
             sharedPreferences = applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            LogManager.log("I", TAG, "SharedPreferences obtained: ${sharedPreferences != null}")
             
             if (windowManager == null) {
                 android.util.Log.e(TAG, "WindowManager is null, cannot initialize service")
@@ -81,37 +102,61 @@ class OverlayService : Service() {
             }
             
             // 检查悬浮窗权限
+            LogManager.log("I", TAG, "Checking overlay permission")
             if (!checkOverlayPermission()) {
                 android.util.Log.e(TAG, "Overlay permission not granted, stopping service")
                 LogManager.log("E", TAG, "Overlay permission not granted, stopping service")
                 stopSelf()
                 return
             }
+            LogManager.log("I", TAG, "Overlay permission granted")
             
+            LogManager.log("I", TAG, "Creating notification channel")
             createNotificationChannel()
-            startForeground(NOTIFICATION_ID, createNotification())
+            LogManager.log("I", TAG, "Notification channel created")
             
+            LogManager.log("I", TAG, "Creating notification")
+            val notification = createNotification()
+            LogManager.log("I", TAG, "Notification created, starting foreground service")
+            startForeground(NOTIFICATION_ID, notification)
+            LogManager.log("I", TAG, "Foreground service started with notification")
+            
+            LogManager.log("I", TAG, "Loading settings")
             loadSettings()
+            LogManager.log("I", TAG, "Settings loaded")
             
             // 延迟创建窗口，确保系统完全初始化
+            LogManager.log("I", TAG, "Scheduling delayed initialization in ${DELAY_INIT_MS}ms")
             mainHandler.postDelayed({
                 try {
+                    LogManager.log("I", TAG, "Delayed initialization starting, isInitialized=$isInitialized")
                     if (!isInitialized) {
                         android.util.Log.d(TAG, "Delayed initialization starting")
+                        LogManager.log("I", TAG, "Step 1: Creating overlay view")
                         // 分步创建：先创建遮挡层
                         if (createOverlayView()) {
                             android.util.Log.d(TAG, "Overlay view created successfully")
+                            LogManager.log("I", TAG, "Overlay view created successfully")
                             // 成功后再创建控制窗口
+                            LogManager.log("I", TAG, "Step 2: Creating control window")
                             if (createControlWindow()) {
                                 android.util.Log.d(TAG, "Control window created successfully")
+                                LogManager.log("I", TAG, "Control window created successfully")
+                            } else {
+                                LogManager.log("W", TAG, "Control window creation failed")
                             }
+                            LogManager.log("I", TAG, "Step 3: Setting up foldable handler")
                             setupFoldableHandler()
+                            LogManager.log("I", TAG, "Foldable handler setup completed")
                             isInitialized = true
                             android.util.Log.d(TAG, "Service initialized successfully")
+                            LogManager.log("I", TAG, "=== Service initialized successfully ===")
                         } else {
                             android.util.Log.e(TAG, "Failed to create overlay view")
                             LogManager.log("E", TAG, "Failed to create overlay view")
                         }
+                    } else {
+                        LogManager.log("W", TAG, "Service already initialized, skipping delayed init")
                     }
                 } catch (e: Exception) {
                     android.util.Log.e(TAG, "Error during delayed initialization", e)
@@ -122,17 +167,28 @@ class OverlayService : Service() {
                     val pw = java.io.PrintWriter(sw)
                     e.printStackTrace(pw)
                     android.util.Log.e(TAG, "Full stack trace: ${sw.toString()}")
+                    LogManager.log("E", TAG, "Full stack trace: ${sw.toString()}")
                 }
             }, DELAY_INIT_MS)
+            LogManager.log("I", TAG, "Delayed initialization scheduled")
             
         } catch (e: Exception) {
             android.util.Log.e(TAG, "Error in onCreate", e)
+            LogManager.log("E", TAG, "=== CRITICAL ERROR in onCreate ===", e)
             e.printStackTrace()
             val sw = java.io.StringWriter()
             val pw = java.io.PrintWriter(sw)
             e.printStackTrace(pw)
-            android.util.Log.e(TAG, "Full stack trace: ${sw.toString()}")
-            stopSelf()
+            val stackTrace = sw.toString()
+            android.util.Log.e(TAG, "Full stack trace: $stackTrace")
+            LogManager.log("E", TAG, "Full stack trace: $stackTrace")
+            try {
+                stopSelf()
+            } catch (stopException: Exception) {
+                LogManager.log("E", TAG, "Error stopping service", stopException)
+            }
+        } finally {
+            LogManager.log("I", TAG, "=== OverlayService.onCreate() END ===")
         }
     }
     
@@ -159,21 +215,27 @@ class OverlayService : Service() {
         if (isInitialized) {
             mainHandler.post {
                 try {
+                    LogManager.log("I", TAG, "Checking windows in onStartCommand")
                     // 检查并重新创建窗口（如果不存在）
                     if (overlayView == null || overlayView?.parent == null) {
                         android.util.Log.w(TAG, "Overlay view missing, recreating...")
+                        LogManager.log("W", TAG, "Overlay view missing, recreating...")
                         createOverlayView()
                     }
                     if (controlWindow == null) {
                         android.util.Log.w(TAG, "Control window missing, recreating...")
+                        LogManager.log("W", TAG, "Control window missing, recreating...")
                         createControlWindow()
                     }
+                    LogManager.log("I", TAG, "Window check completed in onStartCommand")
                 } catch (e: Exception) {
                     android.util.Log.e(TAG, "Error recreating windows", e)
+                    LogManager.log("E", TAG, "Error recreating windows", e)
                 }
             }
         }
         
+        LogManager.log("I", TAG, "onStartCommand returning START_STICKY")
         return START_STICKY // 确保服务被系统杀死后自动重启
     }
     
