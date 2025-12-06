@@ -16,10 +16,20 @@ class MainActivity : AppCompatActivity() {
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        binding = ActivityMainBinding.inflate(layoutInflater)
-        setContentView(binding.root)
         
-        checkPermissionAndUpdateUI()
+        // 初始化全局异常处理器
+        CrashHandler.init()
+        
+        try {
+            binding = ActivityMainBinding.inflate(layoutInflater)
+            setContentView(binding.root)
+            
+            checkPermissionAndUpdateUI()
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error in onCreate", e)
+            e.printStackTrace()
+            throw e
+        }
         
         binding.btnRequestPermission.setOnClickListener {
             requestOverlayPermission()

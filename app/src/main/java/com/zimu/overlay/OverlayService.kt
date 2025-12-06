@@ -62,7 +62,7 @@ class OverlayService : Service() {
     
     override fun onCreate() {
         super.onCreate()
-        android.util.Log.d(TAG, "onCreate called")
+        android.util.Log.d(TAG, "onCreate called, SDK: ${Build.VERSION.SDK_INT}")
         
         try {
             isRunning = true
@@ -78,6 +78,13 @@ class OverlayService : Service() {
                 return
             }
             
+            // 检查悬浮窗权限
+            if (!checkOverlayPermission()) {
+                android.util.Log.e(TAG, "Overlay permission not granted, stopping service")
+                stopSelf()
+                return
+            }
+            
             createNotificationChannel()
             startForeground(NOTIFICATION_ID, createNotification())
             
@@ -88,22 +95,55 @@ class OverlayService : Service() {
                 try {
                     if (!isInitialized) {
                         android.util.Log.d(TAG, "Delayed initialization starting")
-                        createOverlayView()
-                        createControlWindow()
-                        setupFoldableHandler()
-                        isInitialized = true
-                        android.util.Log.d(TAG, "Service initialized successfully")
+                        // 分步创建：先创建遮挡层
+                        if (createOverlayView()) {
+                            android.util.Log.d(TAG, "Overlay view created successfully")
+                            // 成功后再创建控制窗口
+                            if (createControlWindow()) {
+                                android.util.Log.d(TAG, "Control window created successfully")
+                            }
+                            setupFoldableHandler()
+                            isInitialized = true
+                            android.util.Log.d(TAG, "Service initialized successfully")
+                        } else {
+                            android.util.Log.e(TAG, "Failed to create overlay view")
+                        }
                     }
                 } catch (e: Exception) {
                     android.util.Log.e(TAG, "Error during delayed initialization", e)
                     e.printStackTrace()
+                    // 记录完整的堆栈跟踪
+                    val sw = java.io.StringWriter()
+                    val pw = java.io.PrintWriter(sw)
+                    e.printStackTrace(pw)
+                    android.util.Log.e(TAG, "Full stack trace: ${sw.toString()}")
                 }
             }, DELAY_INIT_MS)
             
         } catch (e: Exception) {
             android.util.Log.e(TAG, "Error in onCreate", e)
             e.printStackTrace()
+            val sw = java.io.StringWriter()
+            val pw = java.io.PrintWriter(sw)
+            e.printStackTrace(pw)
+            android.util.Log.e(TAG, "Full stack trace: ${sw.toString()}")
             stopSelf()
+        }
+    }
+    
+    private fun checkOverlayPermission(): Boolean {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val result = android.provider.Settings.canDrawOverlays(applicationContext)
+                android.util.Log.d(TAG, "Overlay permission check: $result")
+                result
+            } else {
+                android.util.Log.d(TAG, "SDK < 23, permission granted by default")
+                true
+            }
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Error checking overlay permission", e)
+            false
         }
     }
     
@@ -243,8 +283,16 @@ class OverlayService : Service() {
         }
     }
     
-    private fun createOverlayView() {
-        try {
+    private fun createOverlayView(): Boolean {
+        return try {
+            android.util.Log.d(TAG, "Creating overlay view...")
+            
+            // 再次检查权限
+            if (!checkOverlayPermission()) {
+                android.util.Log.e(TAG, "Overlay permission not granted, cannot create view")
+                return false
+            }
+            
             // 如果窗口已存在，先移除
             if (overlayView != null && overlayView?.parent != null) {
                 android.util.Log.d(TAG, "Overlay view already exists, removing first")
@@ -254,15 +302,33 @@ class OverlayService : Service() {
             val wm = windowManager
             if (wm == null) {
                 android.util.Log.e(TAG, "WindowManager is null, cannot create overlay view")
-                return
+                return false
             }
             
             // 使用Application Context的LayoutInflater
             val inflater = LayoutInflater.from(applicationContext)
+            if (inflater == null) {
+                android.util.Log.e(TAG, "LayoutInflater is null")
+                return false
+            }
+            
             val binding = OverlayViewBinding.inflate(inflater)
+            if (binding == null) {
+                android.util.Log.e(TAG, "OverlayViewBinding is null")
+                return false
+            }
+            
             overlayView = binding.root
+            if (overlayView == null) {
+                android.util.Log.e(TAG, "Overlay view root is null")
+                return false
+            }
             
             val overlayRect = binding.overlayRect
+            if (overlayRect == null) {
+                android.util.Log.e(TAG, "Overlay rect view is null")
+                return false
+            }
             overlayRect.alpha = overlayAlpha
             overlayRect.setBackgroundColor(overlayColor)
             overlayRect.rotation = overlayRotation
@@ -292,8 +358,28 @@ class OverlayService : Service() {
                 }
             }
             
-            wm.addView(overlayView, overlayParams)
-            android.util.Log.d(TAG, "Overlay view created and added successfully")
+            // 在添加视图前再次检查权限
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                if (!android.provider.Settings.canDrawOverlays(applicationContext)) {
+                    android.util.Log.e(TAG, "Permission check failed before addView")
+                    return false
+                }
+            }
+            
+            try {
+                wm.addView(overlayView, overlayParams)
+                android.util.Log.d(TAG, "Overlay view created and added successfully")
+            } catch (e: android.view.WindowManager.BadTokenException) {
+                android.util.Log.e(TAG, "BadTokenException when adding overlay view", e)
+                return false
+            } catch (e: SecurityException) {
+                android.util.Log.e(TAG, "SecurityException when adding overlay view - permission issue", e)
+                return false
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "Exception when adding overlay view", e)
+                e.printStackTrace()
+                return false
+            }
             
             // 添加拖拽功能
             overlayView?.setOnTouchListener(object : View.OnTouchListener {
@@ -331,16 +417,24 @@ class OverlayService : Service() {
                     return false
                 }
             })
+            
+            true // 成功创建
+        } catch (e: android.view.WindowManager.BadTokenException) {
+            android.util.Log.e(TAG, "BadTokenException creating overlay view", e)
+            e.printStackTrace()
+            false
+        } catch (e: SecurityException) {
+            android.util.Log.e(TAG, "SecurityException creating overlay view - permission denied", e)
+            e.printStackTrace()
+            false
         } catch (e: Exception) {
             android.util.Log.e(TAG, "Error creating overlay view", e)
             e.printStackTrace()
-            // 尝试重试
-            mainHandler.postDelayed({
-                if (!isInitialized) {
-                    android.util.Log.d(TAG, "Retrying overlay view creation")
-                    createOverlayView()
-                }
-            }, 1000L)
+            val sw = java.io.StringWriter()
+            val pw = java.io.PrintWriter(sw)
+            e.printStackTrace(pw)
+            android.util.Log.e(TAG, "Full stack trace: ${sw.toString()}")
+            false
         }
     }
     
@@ -377,8 +471,16 @@ class OverlayService : Service() {
         }
     }
     
-    private fun createControlWindow() {
-        try {
+    private fun createControlWindow(): Boolean {
+        return try {
+            android.util.Log.d(TAG, "Creating control window...")
+            
+            // 再次检查权限
+            if (!checkOverlayPermission()) {
+                android.util.Log.e(TAG, "Overlay permission not granted, cannot create control window")
+                return false
+            }
+            
             // 如果控制窗口已存在，先移除
             controlWindow?.dismiss()
             controlWindow = null
@@ -386,7 +488,7 @@ class OverlayService : Service() {
             val wm = windowManager
             if (wm == null) {
                 android.util.Log.e(TAG, "WindowManager is null, cannot create control window")
-                return
+                return false
             }
             
             val metrics = wm.let { 
@@ -448,16 +550,23 @@ class OverlayService : Service() {
             }
             
             android.util.Log.d(TAG, "Control window created successfully")
+            true // 成功创建
+        } catch (e: android.view.WindowManager.BadTokenException) {
+            android.util.Log.e(TAG, "BadTokenException creating control window", e)
+            e.printStackTrace()
+            false
+        } catch (e: SecurityException) {
+            android.util.Log.e(TAG, "SecurityException creating control window - permission denied", e)
+            e.printStackTrace()
+            false
         } catch (e: Exception) {
             android.util.Log.e(TAG, "Error creating control window", e)
             e.printStackTrace()
-            // 尝试重试
-            mainHandler.postDelayed({
-                if (!isInitialized && controlWindow == null) {
-                    android.util.Log.d(TAG, "Retrying control window creation")
-                    createControlWindow()
-                }
-            }, 1000L)
+            val sw = java.io.StringWriter()
+            val pw = java.io.PrintWriter(sw)
+            e.printStackTrace(pw)
+            android.util.Log.e(TAG, "Full stack trace: ${sw.toString()}")
+            false
         }
     }
     
